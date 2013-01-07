@@ -231,51 +231,79 @@ public class GameWorld
     public static final float PHYSIC_STEP_SEC = (1f / PHYSIC_FRAMERATE);
     public static final int DRAWFRAME_STEP_MS = Math.round(1000.0f / DRAWFRAME_FRAMERATE);
 
-    private int numBodies;
     private Body[] bodies;
     private World world;
+
     private int width, height;
+    private float innerWidth, innerHeight;
+    private float offsetWidth, offsetHeight;
 
     private Liquid liquid;
 
+    // private float[][][] relativeEdges = {
+    //     { { 0f, .25f   } , { .667f, .25f } },
+    //     { { .333f, .5f } , { 1f, .5f } },
+    //     { { 0f, .75f   } , { .667f, .75f } }
+    // };
+
+    private float[][][] relativeEdges = {
+        { { 0f, .5f   } , { .5f, .25f } },
+        { { .5f, .5f } , { 1f, .75f } },
+        { { 0f, 1f   } , { .5f, .75f } }
+    };
+
+    private Vec2[][] edges = new Vec2[relativeEdges.length][2];
+
     public GameWorld(int size) {
         bodies = new Body[size];
-        this.width = this.height = 0;
+        this.width = this.height = 100;
         create();
     }    
-
-    public void setSize(int width, int height) {
-        this.width = width;
-        this.height = height;
-    }
 
     // FIXME y is reversed
     public void create() {
         Log.d(TAG, "Creating world");
- 
-        Vec2 gravity = new Vec2(0.0f, -10.0f);
 
+        Vec2 gravity = new Vec2(0.0f, -10.0f);
+        
         world = new World(gravity, false);
         world.setContinuousPhysics(true);
         world.setWarmStarting(true);
         //world.setContactListener(this);
-
+             
         BodyDef bd = new BodyDef();
         bd.position.set(0.0f, 0.0f);
         Body ground = world.createBody(bd);
 
-        PolygonShape shape = new PolygonShape();
-        shape.setAsBox(50f, 1f, new Vec2(10, 100), -0.25f);
-        ground.createFixture(shape, 0);
+        innerWidth = width * .5f;
+        innerHeight = height * .5f;
+        
+        offsetWidth = width * .25f;
+        offsetHeight = height * .25f;
 
-        shape.setAsBox(50f, 1f, new Vec2(30, 50), .25f);
-        ground.createFixture(shape, 0);
+        Log.d(TAG, "inner = "  + innerWidth + "x" + innerHeight);
+        Log.d(TAG, "offset = "  + offsetWidth + "x" + offsetHeight);
+
+        for (int i=0; i<relativeEdges.length; i++) {
+            
+            float x1 = relativeEdges[i][0][0] * innerWidth + offsetWidth;
+            float y1 = relativeEdges[i][0][1] * innerHeight + offsetHeight;
+            Vec2 a = new Vec2(x1, y1);
+
+            float x2 = relativeEdges[i][1][0] * innerWidth + offsetWidth;
+            float y2 = relativeEdges[i][1][1] * innerHeight + offsetHeight;
+            Vec2 b = new Vec2(x2, y2);
+
+            edges[i][0] = a;
+            edges[i][1] = b;
+            
+            ground.createFixture(createEdge(a, b));
+        }
 
         liquid = new Liquid();
 
         for (int i=0; i<bodies.length; i++) {
-            bodies[numBodies] = addBall(1f, 10f / bodies.length);
-            numBodies++;
+            bodies[i] = addBall(1f, 10f / bodies.length);
         }
 
      }
@@ -284,7 +312,8 @@ public class GameWorld
         
         BodyDef bodyDef = new BodyDef();
         bodyDef.type = BodyType.DYNAMIC;
-        bodyDef.position.set(new Vec2(10 + (float)Math.random() * 4f, height + (float)Math.random() * 4f));
+        bodyDef.position.set(new Vec2((offsetWidth + innerWidth/4) + (float)Math.random() * 4f, 
+                                      height + (float)Math.random() * 4f));
         Body body = world.createBody(bodyDef);
         
         CircleShape shape = new CircleShape();
@@ -313,12 +342,10 @@ public class GameWorld
         return body;
     }
 
-    private void createEdge(float x1, float y1, float x2, float y2, Body groundBody) {
-        Vec2 v1 = new Vec2(x1, y1);
-        Vec2 v2 = new Vec2(x2, y2);
+    private FixtureDef createEdge(Vec2 a, Vec2 b) {
 
         PolygonShape groundShapeDef = new PolygonShape();
-        groundShapeDef.setAsEdge(v1, v2);
+        groundShapeDef.setAsEdge(a, b);
 
         FixtureDef def = new FixtureDef();
         def.density = 1.0f;
@@ -326,7 +353,7 @@ public class GameWorld
         def.restitution = 0.7f;
         def.shape = groundShapeDef;
 
-        groundBody.createFixture(def);        
+        return def;
     }
 
     private void checkBounds() {
@@ -358,12 +385,12 @@ public class GameWorld
         }
     }
 
-    public int getNumBodies() {
-        return numBodies;
-    }
-
     public Body[] getBodies() {
         return bodies;
+    }
+
+    public Vec2[][] getEdges() {
+        return edges;
     }
 
     public void beginContact(Contact contact)  {}

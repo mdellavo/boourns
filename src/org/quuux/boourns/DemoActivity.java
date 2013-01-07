@@ -15,6 +15,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.util.Log;
 
+import org.jbox2d.common.Vec2;
 import org.jbox2d.dynamics.Body;
 
 class PausableThread extends Thread {
@@ -119,101 +120,195 @@ class PausableThread extends Thread {
     }
 }
 
+enum BodyType {
+    BALL,
+    EDGE
+};
+
+class Item {
+    private static final String TAG ="Item";
+    
+    protected BodyBuffer buffer;
+    public BodyType bodyType;
+    protected Paint paint;
+
+    public Item(BodyType bodyType, BodyBuffer buffer, Paint paint) {
+        this.buffer = buffer;
+        this.bodyType = bodyType;
+        this.paint = paint;
+    }
+}
+
+class BallItem extends Item {
+    private static final String TAG ="BallItem";
+
+    protected Body body;
+
+    public BallItem(BodyBuffer buffer, Paint paint) {
+        super(BodyType.BALL, buffer, paint);
+    }
+ 
+    public void draw(Canvas c, long elapsed) {
+        if (body == null) 
+            return ;
+
+        float x = body.getPosition().x * buffer.getScale();
+        float y = buffer.getHeight() - body.getPosition().y * buffer.getScale();
+        float radius = ((Float)body.getUserData()).floatValue() * buffer.getScale();        
+        c.drawCircle(x, y, radius, paint);
+    }
+
+    // FIXME swapped or translated???
+    // FIXME compute angle
+    public void update(Body b) {
+        body = b;
+    }
+}
+ 
+class EdgeItem extends Item {
+    private static final String TAG ="EdgeItem";
+
+    protected Vec2 a, b;
+    public EdgeItem(BodyBuffer buffer, Paint paint) {
+        super(BodyType.EDGE, buffer, paint);
+    }
+
+    public void draw(Canvas c, long elapsed) {
+        if (a == null || b == null) 
+            return;
+
+        float x1 = a.x * buffer.getScale();
+        float y1 = buffer.getHeight() - a.y * buffer.getScale();
+        float x2 = b.x * buffer.getScale();
+        float y2 = buffer.getHeight() - b.y * buffer.getScale();
+
+        c.drawLine(x1, y1, x2, y2, paint);
+    }
+
+    public void update(Vec2 a, Vec2 b) {
+        this.a = a;
+        this.b = b;
+    }
+}
+   
 class BodyBuffer {
 
     private static final String TAG = "BodyBuffer";
 
     private float scale = 10.0f;
-    private Paint paint = new Paint();
+
     private int width, height;
+    private EdgeItem[] edges;
+    private BallItem[] front, back;
 
-    enum BodyType {
-        BALL
-    };
+    private Paint ballPaint = new Paint();
+    private Paint edgePaint = new Paint();
 
-    class Item {
-        public boolean alive;
-        public BodyType bodyType;
-        public float x, y, radius;
-        
-        public void draw(Canvas c, long elapsed) {
-            //Log.d(TAG, "drawing at " + x + "," + y + " | r=" + radius);
-            if (alive)
-                c.drawCircle(x, height - y, radius, paint);
-        }
+    public BodyBuffer(int sizeBalls, int sizeEdges) {
+        ballPaint.setColor(Color.BLUE);
+        ballPaint.setAntiAlias(true);
+        ballPaint.setStrokeWidth(5);
+        ballPaint.setStrokeCap(Paint.Cap.ROUND);
+        ballPaint.setStyle(Paint.Style.FILL);
 
-        // FIXME swapped or translated???
-        // FIXME compute angle
-        public void update(Body b) {
-            //Log.d(TAG, "updating to " + b.getPosition().x + "," + b.getPosition().y);
-            
-            alive = true;
-            x = b.getPosition().x * scale;
-            y = b.getPosition().y * scale;
-            radius = ((Float)b.getUserData()).floatValue() * scale;
-        }
+        edgePaint.setColor(Color.WHITE);
+        edgePaint.setAntiAlias(true);
+        edgePaint.setStrokeWidth(5);
+        edgePaint.setStrokeCap(Paint.Cap.ROUND);
+        edgePaint.setStyle(Paint.Style.FILL);
 
-        public void disable() {
-            alive = false;
-        }
+        front = allocBalls(sizeBalls, ballPaint);
+        back = allocBalls(sizeBalls, ballPaint);
+        edges = allocEdges(sizeEdges, edgePaint);
 
-    }
-
-    private Item[] front, back;
-
-    public BodyBuffer(int size) {
-        front = alloc(size);
-        back = alloc(size);
-
-        paint.setColor(0xffffffff);
-        paint.setAntiAlias(true);
-        paint.setStrokeWidth(5);
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setStyle(Paint.Style.FILL);
     }
 
     public void setSize(int width, int height) {
         this.width = width;
         this.height = height;
+        this.scale = height / 100;
     }
+
+    public void setScale(float s) {
+        scale = s;
+    }
+    
+    public float getScale() {
+        return scale;
+    }
+
+    public int getHeight() { return height; }
+    public int getWidth() { return width; }
 
     public int getLength() {
         return front.length;
     }
 
-    public Item[] alloc(int size) {
-        Item[] rv = new Item[size];
+    public BallItem[] allocBalls(int size, Paint paint) {
+        BallItem[] rv = new BallItem[size];
         
         for (int i=0; i<size; i++) {
-            rv[i] = new Item();
+            rv[i] = new BallItem(this, paint);
+        }
+
+        return rv;
+    }
+
+    public EdgeItem[] allocEdges(int size, Paint paint) {
+        EdgeItem[] rv = new EdgeItem[size];
+        
+        for (int i=0; i<size; i++) {
+            rv[i] = new EdgeItem(this, paint);
         }
 
         return rv;
     }
    
     public synchronized void swap() {
-        Item[] tmp = front;
+        BallItem[] tmp = front;
         front = back;
         back = tmp;
     }
 
-    public void update(Body[] bodies, int numBodies) {
-        for (int i=0; i<back.length && i < bodies.length; i++) {
-            
-            if (i < numBodies)
-                back[i].update(bodies[i]);
-            else
-                back[i].disable();
+    public void addEdges(Vec2[][] edges) {
+        for (int i=0; i<edges.length; i++) {
+            Vec2 a = edges[i][0];
+            Vec2 b = edges[i][1];
+            Log.d(TAG, "adding edge " + a + ", " + b);
+                this.edges[i].update(a, b);
+        }
+    }
 
+    public void update(Body[] bodies) {
+        for (int i=0; i < back.length && i < bodies.length; i++) {
+            back[i].update(bodies[i]);
         }
     }
 
     public synchronized void draw(Canvas c, long elapsed) {
-        for (int i=0; i<front.length; i++) {
-            if (front[i].alive) {
-                front[i].draw(c, elapsed);
-            }
+        
+        c.save();
+
+        // FIXME set scale, translation rotation
+        //c.scale(scale, scale);
+        c.translate(width / 2 - 50 * scale, 0);
+        c.rotate(0);
+
+        c.drawColor(Color.BLACK);
+
+        for (int i=0; i<edges.length; i++) {
+            c.save();
+            edges[i].draw(c, elapsed);
+            c.restore();
         }
+
+        for (int i=0; i<front.length; i++) {
+            c.save();
+            front[i].draw(c, elapsed);
+            c.restore();
+        }
+
+        c.restore();
     }
 }
 
@@ -227,8 +322,7 @@ public class DemoActivity
 
         private BodyBuffer buffer;
         private SurfaceHolder surfaceHolder;
-        private int width, height;
-
+ 
         public RenderThread(BodyBuffer buffer) {
             super("RenderThread", 60);
             this.buffer = buffer;
@@ -237,17 +331,11 @@ public class DemoActivity
         public synchronized void setSurfaceHolder(SurfaceHolder s) {
             surfaceHolder = s;
         }
-
-        public synchronized void setSize(int w, int h) {
-            width = w;
-            height = h;
-        }
-
+ 
         public void update(long elapsed) {
             //Log.d(TAG, "update");
             
             Canvas c = surfaceHolder.lockCanvas();
-            c.drawColor(Color.BLUE);
             buffer.draw(c, elapsed);
             surfaceHolder.unlockCanvasAndPost(c);
         }
@@ -261,17 +349,14 @@ public class DemoActivity
             super("SimulationThread", 200);
             this.buffer = buffer;
             world = new GameWorld(buffer.getLength());
-        }
-
-        public synchronized void setSize(int w, int h) {
-            world.setSize(w/10, h/10);
+            buffer.addEdges(world.getEdges());
         }
 
         public void update(long elapsed) {
             //Log.d(TAG, "update");
 
             world.tick(elapsed);
-            buffer.update(world.getBodies(), world.getNumBodies());
+            buffer.update(world.getBodies());
             buffer.swap();
         }
     }
@@ -296,7 +381,7 @@ public class DemoActivity
 
         setContentView(worldView);
 
-        buffer = new BodyBuffer(50);
+        buffer = new BodyBuffer(100, 3);
 
         renderThread = new RenderThread(buffer);
         simulationThread = new SimulationThread(buffer);
@@ -345,10 +430,7 @@ public class DemoActivity
     }
 
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        Log.d(TAG, String.format("Surface changed - %dx%d", width, height));
-        
+        Log.d(TAG, String.format("Surface changed - %dx%d", width, height));       
         buffer.setSize(width, height);
-        renderThread.setSize(width, height);
-        simulationThread.setSize(width, height);
     }
 }
